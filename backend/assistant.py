@@ -41,8 +41,11 @@ async def entrypoint(ctx: JobContext):
 
 
     assistant = VoiceAssistant(
-        vad=silero.VAD.load(),  # We'll use Silero's Voice Activity Detector (VAD)
-        stt=openai.STT(detect_language=True),  # We'll use openAI's Speech To Text (STT)
+        vad=silero.VAD.load(
+            activation_threshold=0.7,
+            min_silence_duration=0.3,
+            min_speech_duration=0.2
+            ),  # We'll use Silero's Voice Activity Detector (VAD)        stt=openai.STT(detect_language=True),  # We'll use openAI's Speech To Text (STT)
         llm=gpt,
         tts=openai_tts,  # We'll use OpenAI's Text To Speech (TTS)
         fnc_ctx=None,

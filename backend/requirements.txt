@@ -1,0 +1,10 @@
+flask
+flask-cors
+python-dotenv
+livekit
+multiprocessing
+uuid
+asyncio
+typing-extensions
+openai
+silero
