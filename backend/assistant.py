@@ -10,27 +10,59 @@ from livekit.agents.llm import (
 from livekit.agents.voice_assistant import VoiceAssistant
 from livekit.plugins import openai, silero
 from dotenv import load_dotenv
+from livekit.plugins import google
+from livekit.agents.llm import FunctionContext
+
+
 
 load_dotenv()
 
-
+def schedule_task(coro):
+    loop = asyncio.get_running_loop()
+    loop.create_task(coro)
+    
+class WeatherFunctions(FunctionContext):
+    def __init__(self):
+        super().__init__()
+        
+        # Register the weather function using the instance method
+        @self.ai_callable(
+            name="get_weather",
+            description="Get the current weather for a specific location"
+        )
+        async def get_weather(location: Annotated[str, "The city and state, e.g. San Francisco, CA"]) -> str:
+            """
+            Get the current weather for a specific location.
+            """
+            # In a real implementation, you would call a weather API here
+            return f"The weather in {location} is sunny with a temperature of 72°F."
+        
+        
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
     print(f"Room name: {ctx.room.name}")
+    
 
     chat_context = ChatContext(
         messages=[
             ChatMessage(
                 role="system",
                 content=(
-                    "Your name is Alloy. You are a funny, witty bot. Your interface with users will be voice and vision."
+                    "Your name is Alloy. You are a funny, witty bot. Your interface with users will be voice."
                     "Respond with short and concise answers. Avoid using unpronouncable punctuation or emojis."
                 ),
             )
         ]
     )
+    
 
-    gpt = openai.LLM(model="gpt-4o")
+    
+    gpt =  google.LLM(model="gemini-2.0-flash",vertexai=True)
+    # gpt = openai.LLM(model="gpt-4o")
+    
+    # Create the function context with our weather function
+    fnc_ctx = WeatherFunctions()
+    
 
     # Since OpenAI does not support streaming TTS, we'll use it with a StreamAdapter
     # to make it compatible with the VoiceAssistant
@@ -42,19 +74,20 @@ async def entrypoint(ctx: JobContext):
 
     assistant = VoiceAssistant(
         vad=silero.VAD.load(
-            activation_threshold=0.7,
-            min_silence_duration=0.3,
-            min_speech_duration=0.2
-            ),  # We'll use Silero's Voice Activity Detector (VAD)        stt=openai.STT(detect_language=True),  # We'll use openAI's Speech To Text (STT)
+            activation_threshold=0.65,
+            # min_silence_duration=0.4,
+            # min_speech_duration=0.2
+            ),  # We'll use Silero's Voice Activity Detector (VAD)
+        stt=openai.STT(detect_language=True),  # We'll use openAI's Speech To Text (STT)
         llm=gpt,
         tts=openai_tts,  # We'll use OpenAI's Text To Speech (TTS)
-        fnc_ctx=None,
+        fnc_ctx=fnc_ctx,
         chat_ctx=chat_context,
     )
 
     chat = rtc.ChatManager(ctx.room)
 
-    async def _answer(text: str, use_image: bool = False):
+    async def _answer(text: str):
         """
         Answer the user's message with the given text and optionally the latest
         image captured from the video track.
@@ -71,7 +104,7 @@ async def entrypoint(ctx: JobContext):
         """This event triggers whenever we get a new message from the user."""
 
         if msg.message:
-            asyncio.create_task(_answer(msg.message, use_image=False))
+            schedule_task(_answer(msg.message))
 
     @assistant.on("function_calls_finished")
     def on_function_calls_finished(called_functions: list[agents.llm.CalledFunction]):
@@ -82,7 +115,7 @@ async def entrypoint(ctx: JobContext):
 
         user_msg = called_functions[0].call_info.arguments.get("user_msg")
         if user_msg:
-            asyncio.create_task(_answer(user_msg, use_image=True))
+            schedule_task(_answer(user_msg))
 
     assistant.start(ctx.room)
 
@@ -91,8 +124,6 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    cli.run_app(
-        WorkerOptions(entrypoint_fnc=entrypoint))
-    
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
     
     
